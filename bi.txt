@@ -1,1 +1,117 @@
-sdbnfklwjfㅇㄹㄹㄴㅇㄹㄴㅇㄹ
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+
+def community_collector(url, user_comments_input=""):
+    """
+    [6개 모듈 중 1단계: Collector - 이미지 완벽 수집 버전]
+    디시인사이드의 철저한 이미지 방어망을 뚫고 진짜 짤방 주소를 무조건 잡아냅니다.
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+        'Referer': 'https://www.dcinside.com/'
+    }
+    
+    post_data = {
+        "title": "URL 기반 분석",
+        "content": "",
+        "images": [],
+        "comments": []
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        response.encoding = response.apparent_encoding 
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        if soup.title:
+            post_data["title"] = soup.title.string.strip()
+            
+        # 디시인사이드 본문 박스 타겟팅
+        content_box = soup.find('div', class_='write_div') or soup.find('div', class_='inner_write')
+        
+        if not content_box:
+            # 못 찾으면 전체 영역에서 스크립트만 지우고 탐색
+            for garbage in soup(["script", "style", "nav", "footer", "header", "aside"]):
+                garbage.extract()
+            content_box = soup
+            
+        # 본문 텍스트 추출
+        page_text = content_box.get_text(separator="\n", strip=True)
+        lines = [line.strip() for line in page_text.splitlines() if line.strip()]
+        post_data["content"] = "\n".join(lines)[:2000]
+        
+        # 📌 [이미지 무조건 잡아내는 미끼 세팅]
+        img_tags = content_box.find_all('img')
+        image_urls = []
+        
+        for img in img_tags:
+            # 디시가 숨겨놓을 수 있는 모든 속성 후보군을 전부 조사합니다.
+            src_candidates = [
+                img.get('data-original'),
+                img.get('src'),
+                img.get('lazy-src'),
+                img.get('original'),
+                img.get('alt-src')
+            ]
+            
+            for src in src_candidates:
+                if src:
+                    # 상대 경로 처리 및 공백 제거
+                    full_url = urljoin(url, src.strip())
+                    
+                    # 1. 추천/비추천 버튼, 댓글 이모티콘 등 '쇼츠와 무관한 아이콘'만 정밀 저격하여 필터링
+                    if any(x in full_url for x in ["icon_", "btn_", "recom_", "sign_", "smiles", "dccon"]):
+                        continue
+                        
+                    # 2. 이미지 주소처럼 생긴 녀석이거나 디시 이미지 서버(dcimg) 주소라면 무조건 통과
+                    if "dcimg" in full_url or any(ext in full_url.lower() for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]):
+                        if full_url not in image_urls:
+                            image_urls.append(full_url)
+                            break # 하나의 이미지 태그에서 주소를 찾았으면 다음 태그로 이동
+                
+        post_data["images"] = image_urls[:5] # 최대 5장 패킹
+        
+        if user_comments_input:
+            comment_lines = [c.strip() for c in user_comments_input.splitlines() if c.strip()]
+            post_data["comments"] = comment_lines
+            
+        return post_data
+
+    except Exception as e:
+        print(f"❌ Collector 작동 중 치명적 오류 발생: {e}")
+        return post_data
+
+def main():
+    print("====== 🏗️ [모듈 1] Collector 데이터 정밀 수집 테스트 ======")
+    url = input("수집할 커뮤니티 주소(URL)를 입력하세요: ").strip()
+    
+    print("\n💬 [선택] 댓글 입력 (종료 시 엔터 두 번):")
+    user_comments = ""
+    while True:
+        line = input()
+        if not line:
+            break
+        user_comments += line + "\n"
+        
+    print("\n⚡ 방어벽 파괴 모드로 이미지 재수집 시작...")
+    collected_result = community_collector(url, user_comments)
+    
+    print("\n==================================================")
+    print("📦 [Collector가 완성한 최종 파이프라인 데이터 패키지]")
+    print("==================================================")
+    print(f"📌 제목(title):\n👉 {collected_result['title']}\n")
+    print(f"🖼️ 수집된 이미지 개수: {len(collected_result['images'])}개")
+    for idx, img_url in enumerate(collected_result['images']):
+        print(f"   [{idx+1}] {img_url}")
+    print(f"\n💬 수집된 댓글 개수: {len(collected_result['comments'])}개")
+    print("\n📝 본문 내용(content)일부:")
+    print("--------------------------------------------------")
+    print(collected_result['content'][:200] + "\n...")
+    print("==================================================")
+
+if __name__ == "__main__":
+    main()
